@@ -14,4 +14,17 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
   </ItemGroup>
 
+  <!-- Ensure all files in the local 'input' folder are copied to the build output (bin/…/input) -->
+  <ItemGroup>
+    <Content Include="input/**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- Ensure all files in the local 'piper' folder are copied to the build output (bin/…/piper) -->
+    <Content Include="piper/**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

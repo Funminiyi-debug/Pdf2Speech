@@ -81,12 +81,10 @@ public class PdfToSpeechProcessor : IFileProcessor
         {
             try
             {
-                using (var stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.None))
-                {
-                    return true;
-                }
+                using var stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.None);
+                return true;
             }
-            catch (IOException)
+            catch (IOException ex)
             {
                 System.Threading.Thread.Sleep(500);
             }
