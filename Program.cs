@@ -137,15 +137,23 @@ class Program
     {
         try
         {
-            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var stdErrBuffer = new System.Text.StringBuilder();
             var result = await Cli.Wrap(command)
                 .WithArguments(args)
                 .WithValidation(CommandResultValidation.None)
+                .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stdErrBuffer))
                 .ExecuteAsync(cts.Token);
+
+            if (result.ExitCode != 0)
+            {
+                Console.WriteLine($"Command '{command} {args}' failed with exit code {result.ExitCode}. Stderr: {stdErrBuffer}");
+            }
             return result.ExitCode == 0;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"Exception checking dependency '{command}': {ex.Message}");
             return false;
         }
     }
