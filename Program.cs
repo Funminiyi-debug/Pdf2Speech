@@ -2,6 +2,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using CliWrap;
+using Microsoft.Extensions.DependencyInjection;
 using PdfToSpeechApp.Interfaces;
 using PdfToSpeechApp.Services.Core;
 using PdfToSpeechApp.Services.Infrastructure;
@@ -21,11 +22,20 @@ class Program
             // 2. Perform Pre-DI logic (Model/Piper Resolution)
             await SetupEnvironmentAsync(config, logger);
 
-            // 3. Pure DI Composition
-            var compositionRoot = new CompositionRoot();
-            var app = compositionRoot.CreateAppEntry(config, logger);
+            // 3. Build DI container
+            var services = new ServiceCollection();
+
+            // register pre-created instances
+            services.AddSingleton<ILogger>(logger);
+            services.AddSingleton<IAppConfig>(config);
+
+            // register application services
+            services.AddPdfToSpeechApp();
+
+            using var provider = services.BuildServiceProvider();
 
             // 4. Run App
+            var app = provider.GetRequiredService<AppEntry>();
             await app.RunAsync(args);
         }
         catch (Exception ex)

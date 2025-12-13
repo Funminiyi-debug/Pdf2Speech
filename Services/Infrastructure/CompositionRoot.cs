@@ -1,54 +1,45 @@
-using System;
+using Microsoft.Extensions.DependencyInjection;
 using PdfToSpeechApp.Interfaces;
 using PdfToSpeechApp.Services.Core;
-using PdfToSpeechApp.Services.Infrastructure;
 
 namespace PdfToSpeechApp;
 
-public class CompositionRoot
+public static class ServiceCollectionExtensions
 {
-    public AppEntry CreateAppEntry(IAppConfig config, ILogger logger)
+    public static IServiceCollection AddPdfToSpeechApp(this IServiceCollection services)
     {
-        // Infrastructure
-        var modelManager = new ModelManager(config.ModelsDir);
+        // Core infrastructure and services
+        services.AddSingleton<ModelManager>(sp =>
+            new ModelManager(sp.GetRequiredService<IAppConfig>().ModelsDir));
 
-        // Core Definitions
-        IPdfParser pdfParser = new PdfPigParser(logger);
-        IAudioConverter audioConverter = new FfmpegAudioConverter(logger);
+        services.AddSingleton<IPdfParser, PdfPigParser>();
+        services.AddSingleton<IAudioConverter, FfmpegAudioConverter>();
 
-        // TTS Services
-        var piperTts = new PiperTtsService(config.PiperPath, logger);
-        var macSayTts = new MacSayTtsService(logger);
+        // TTS services: register concretes, then composite as ITtsService
+        services.AddSingleton<PiperTtsService>(sp =>
+            new PiperTtsService(
+                sp.GetRequiredService<IAppConfig>().PiperPath,
+                sp.GetRequiredService<ILogger>()));
 
-        // Composite TTS
-        ITtsService ttsService = new FallbackTtsService(piperTts, macSayTts, logger);
+        services.AddSingleton<MacSayTtsService>();
 
-        // Processor
-        // Note: ResolvedModelPath must be set in config before calling this if it's used inside.
-        // Or we pass it. The current PdfToSpeechProcessor reads from config.
-        IFileProcessor fileProcessor = new PdfToSpeechProcessor(
-            pdfParser,
-            ttsService,
-            audioConverter,
-            logger,
-            config
-        );
+        services.AddSingleton<ITtsService>(sp =>
+            new FallbackTtsService(
+                sp.GetRequiredService<PiperTtsService>(),
+                sp.GetRequiredService<MacSayTtsService>(),
+                sp.GetRequiredService<ILogger>()));
 
-        // Monitor
-        IFileMonitor fileMonitor = new DirectoryFileMonitor(
-            config.InputDir,
-            "*.pdf",
-            fileProcessor,
-            logger
-        );
+        services.AddSingleton<IFileProcessor, PdfToSpeechProcessor>();
 
-        // App Entry
-        return new AppEntry(
-            logger,
-            config,
-            modelManager,
-            fileMonitor,
-            fileProcessor
-        );
+        services.AddSingleton<IFileMonitor>(sp =>
+            new DirectoryFileMonitor(
+                sp.GetRequiredService<IAppConfig>().InputDir,
+                "*.pdf",
+                sp.GetRequiredService<IFileProcessor>(),
+                sp.GetRequiredService<ILogger>()));
+
+        services.AddSingleton<AppEntry>();
+
+        return services;
     }
 }

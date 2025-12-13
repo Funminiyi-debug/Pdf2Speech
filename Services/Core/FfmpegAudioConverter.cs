@@ -5,18 +5,13 @@ using PdfToSpeechApp.Interfaces;
 
 namespace PdfToSpeechApp.Services.Core;
 
-public class FfmpegAudioConverter : IAudioConverter
+public class FfmpegAudioConverter(
+        ILogger logger
+    ) : IAudioConverter
 {
-    private readonly ILogger _logger;
-
-    public FfmpegAudioConverter(ILogger logger)
-    {
-        _logger = logger;
-    }
-
     public async Task ConvertToMp3Async(string inputWav, string outputMp3)
     {
-        _logger.Log($"Converting {inputWav} to {outputMp3}...");
+        logger.Log($"Converting {inputWav} to {outputMp3}...");
         try
         {
             await Cli.Wrap("ffmpeg")
@@ -30,7 +25,7 @@ public class FfmpegAudioConverter : IAudioConverter
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error running FFmpeg: {ex.Message}", ex);
+            logger.LogError($"Error running FFmpeg: {ex.Message}", ex);
             throw;
         }
     }
