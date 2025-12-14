@@ -3,3 +3,4 @@
 - always write unit tests for new features
 - Don't use tuple response from methods, instead create a class or record for response types
 - use consistent variable declaration, if it's var let everything be var instead of say string
+- put new class declaration into its own file.

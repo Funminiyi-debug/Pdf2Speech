@@ -10,7 +10,9 @@ public static class ServiceCollectionExtensions
     {
         // Core infrastructure and services
         services.AddSingleton<ModelManager>(sp =>
-            new ModelManager(sp.GetRequiredService<IAppConfig>().ModelsDir));
+            new ModelManager(
+                sp.GetRequiredService<IAppConfig>().ModelsDir,
+                sp.GetRequiredService<ILogger>()));
 
         services.AddSingleton<IPdfParser, PdfPigParser>();
         services.AddSingleton<IAudioConverter, FfmpegAudioConverter>();

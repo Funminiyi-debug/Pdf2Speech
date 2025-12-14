@@ -33,6 +33,22 @@ namespace PdfToSpeechApp.Tests
             _configMock.Setup(c => c.ResolvedModelPath).Returns("dummy_model.onnx");
             _configMock.Setup(c => c.OutputDir).Returns(_testOutputDir);
 
+            // Setup logger mocks to actually invoke the operations
+            _loggerMock.Setup(l => l.RunWithProgressAsync(
+                It.IsAny<string>(),
+                It.IsAny<int>(),
+                It.IsAny<Func<IProgress<int>, Task>>()))
+                .Returns<string, int, Func<IProgress<int>, Task>>((desc, max, operation) =>
+                {
+                    var progress = new Progress<int>();
+                    return operation(progress);
+                });
+
+            _loggerMock.Setup(l => l.RunWithStatusAsync(
+                It.IsAny<string>(),
+                It.IsAny<Func<Task>>()))
+                .Returns<string, Func<Task>>((msg, operation) => operation());
+
             _processor = new PdfToSpeechProcessor(
                 _parserMock.Object,
                 _ttsServiceMock.Object,
@@ -50,7 +66,6 @@ namespace PdfToSpeechApp.Tests
             }
         }
 
-        // Use fully qualified name to avoid collision if any
         [Fact]
         public async Task ProcessFileAsync_GeneratesAudioAndConvertsToMp3()
         {
@@ -63,7 +78,7 @@ namespace PdfToSpeechApp.Tests
 
             _parserMock.Setup(p => p.ExtractText(pdfPath)).Returns(parseResult);
 
-            // Mock TTS to verify progress and simulate output file creation
+            // Mock TTS to simulate output file creation
             _ttsServiceMock.Setup(t => t.GenerateAudioAsync(
                 It.IsAny<IEnumerable<string>>(),
                 It.IsAny<string>(),
@@ -79,23 +94,12 @@ namespace PdfToSpeechApp.Tests
                 })
                 .Returns(Task.CompletedTask);
 
-            // Capture Console Output
-            var originalOut = Console.Out;
-            using var sw = new StringWriter();
-            Console.SetOut(sw);
-
-            try
-            {
-                // Act
-                await _processor.ProcessFileAsync(pdfPath);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-            }
+            // Act
+            await _processor.ProcessFileAsync(pdfPath);
 
             // Assert
             _parserMock.Verify(p => p.ExtractText(pdfPath), Times.Once);
+
             _ttsServiceMock.Verify(t => t.GenerateAudioAsync(
                 It.IsAny<IEnumerable<string>>(),
                 It.Is<string>(s => s.EndsWith(".wav")),
@@ -106,9 +110,19 @@ namespace PdfToSpeechApp.Tests
                 It.Is<string>(s => s.EndsWith(".wav")),
                 It.Is<string>(s => s.EndsWith(".mp3"))), Times.Once);
 
-            string consoleOutput = sw.ToString();
-            Assert.Contains("50% (1/2)", consoleOutput);
-            Assert.Contains("100% (2/2)", consoleOutput);
+            // Verify logger interactions
+            _loggerMock.Verify(l => l.LogHeader(It.Is<string>(s => s.Contains("test.pdf"))), Times.Once);
+            _loggerMock.Verify(l => l.Log(It.Is<string>(s => s.Contains("pages"))), Times.Once);
+            _loggerMock.Verify(l => l.RunWithProgressAsync(
+                It.IsAny<string>(),
+                2,
+                It.IsAny<Func<IProgress<int>, Task>>()), Times.Once);
+            _loggerMock.Verify(l => l.RunWithStatusAsync(
+                It.Is<string>(s => s.Contains("MP3")),
+                It.IsAny<Func<Task>>()), Times.Once);
+            _loggerMock.Verify(l => l.LogSuccessPanel(
+                It.IsAny<string>(),
+                It.Is<string>(s => s.Contains(".mp3"))), Times.Once);
         }
 
         [Fact]

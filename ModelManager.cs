@@ -3,13 +3,16 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using PdfToSpeechApp.Interfaces;
+using PdfToSpeechApp.Services.Infrastructure;
 
 namespace PdfToSpeechApp;
 
-public class ModelManager(string modelsDir)
+public class ModelManager
 {
-    private readonly string _modelsDir = modelsDir;
-    private readonly HttpClient _httpClient = new HttpClient();
+    private readonly string _modelsDir;
+    private readonly HttpClient _httpClient;
+    private readonly ILogger _logger;
 
     // Mapping of short names to base URLs (without extension)
     // We assume .onnx and .onnx.json exist at these URLs.
@@ -23,6 +26,18 @@ public class ModelManager(string modelsDir)
         { "southern-low", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/en_GB-southern_english_female-low" },
         { "aru-medium", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/aru/medium/en_GB-aru-medium"},
     };
+
+    public ModelManager(string modelsDir, ILogger logger)
+    {
+        _modelsDir = modelsDir;
+        _logger = logger;
+        _httpClient = new HttpClient();
+    }
+
+    // Constructor for backwards compatibility (used in DI registration)
+    public ModelManager(string modelsDir) : this(modelsDir, new NullLogger())
+    {
+    }
 
     public async Task<string?> GetModelPathAsync(string modelName)
     {
@@ -38,7 +53,7 @@ public class ModelManager(string modelsDir)
 
         if (File.Exists(modelName)) return modelName;
 
-        Console.WriteLine($"Error: Unknown model '{modelName}'. Available models: {string.Join(", ", _knownModels.Keys)}");
+        _logger.LogError($"Unknown model '{modelName}'. Available models: {string.Join(", ", _knownModels.Keys)}");
         return null;
     }
 
@@ -55,23 +70,51 @@ public class ModelManager(string modelsDir)
             return onnxPath;
         }
 
-        Console.WriteLine($"Downloading model '{modelName}'...");
+        _logger.Log($"Downloading model '{modelName}'...");
         Directory.CreateDirectory(_modelsDir);
 
-        await DownloadFileAsync($"{baseUrl}.onnx", onnxPath);
-        await DownloadFileAsync($"{baseUrl}.onnx.json", jsonPath);
+        var taskNames = new[] { onnxFileName, jsonFileName };
+        var downloadTasks = new (string url, string path)[]
+        {
+            ($"{baseUrl}.onnx", onnxPath),
+            ($"{baseUrl}.onnx.json", jsonPath)
+        };
 
-        Console.WriteLine($"Model '{modelName}' downloaded successfully.");
+        await _logger.RunDownloadProgressAsync(taskNames, async reportProgress =>
+        {
+            for (int i = 0; i < downloadTasks.Length; i++)
+            {
+                var (url, path) = downloadTasks[i];
+                await DownloadFileWithProgressAsync(url, path, i, reportProgress);
+            }
+        });
+
+        _logger.LogSuccess($"Model '{modelName}' downloaded successfully!");
         return onnxPath;
     }
 
-    private async Task DownloadFileAsync(string url, string outputPath)
+    private async Task DownloadFileWithProgressAsync(string url, string outputPath, int taskIndex, Action<int, long, long> reportProgress)
     {
-        Console.WriteLine($"Downloading {url}...");
-        using var response = await _httpClient.GetAsync(url);
+        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        using var fs = new FileStream(outputPath, FileMode.Create);
-        await response.Content.CopyToAsync(fs);
+        var totalBytes = response.Content.Headers.ContentLength ?? 0;
+        reportProgress(taskIndex, 0, totalBytes);
+
+        await using var contentStream = await response.Content.ReadAsStreamAsync();
+        await using var fileStream = new FileStream(outputPath, FileMode.Create);
+
+        var buffer = new byte[81920];
+        long totalRead = 0;
+        int bytesRead;
+
+        while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+        {
+            await fileStream.WriteAsync(buffer, 0, bytesRead);
+            totalRead += bytesRead;
+            reportProgress(taskIndex, totalRead, totalBytes);
+        }
+
+        reportProgress(taskIndex, totalBytes, totalBytes);
     }
 }

@@ -25,7 +25,11 @@ public class PdfToSpeechProcessor(
 
         try
         {
-            logger.Log($"Processing {Path.GetFileName(filePath)}...");
+            var fileName = Path.GetFileName(filePath);
+
+            // Display header for the file being processed
+            logger.LogHeader($"Processing: {fileName}");
+
             var result = parser.ExtractText(filePath);
             var totalPages = result.TotalPages;
             var textChunks = result.Pages;
@@ -36,63 +40,35 @@ public class PdfToSpeechProcessor(
 
             logger.Log($"Detected {totalPages} pages. Starting conversion...");
 
-            var progress = new SyncProgress<int>(current => DrawProgressBar(current, totalPages));
-
-            // Generate WAV
-            await ttsService.GenerateAudioAsync(textChunks, wavPath, _resolvedModelPath, progress);
-            Console.WriteLine(); // Close progress bar line
+            // Run TTS with progress tracking
+            await logger.RunWithProgressAsync(
+                "Converting pages to speech",
+                totalPages,
+                async progress => await ttsService.GenerateAudioAsync(textChunks, wavPath, _resolvedModelPath, progress));
 
             if (File.Exists(wavPath))
             {
-                // Convert to MP3
-                await audioConverter.ConvertToMp3Async(wavPath, mp3Path);
-                logger.Log($"Success! Audio saved to {mp3Path}");
+                // Convert to MP3 with status spinner
+                await logger.RunWithStatusAsync("Converting to MP3...", async () =>
+                {
+                    await audioConverter.ConvertToMp3Async(wavPath, mp3Path);
+                });
+
+                // Show success panel
+                logger.LogSuccessPanel("Success", $"Audio saved to: {mp3Path}");
 
                 // Cleanup WAV
                 File.Delete(wavPath);
             }
             else
             {
-                logger.Log("Failed to generate WAV file (or text was empty).");
+                logger.LogWarning("Failed to generate WAV file (or text was empty).");
             }
         }
         catch (Exception ex)
         {
             logger.LogError($"Error processing file: {ex.Message}", ex);
         }
-    }
-
-    private void DrawProgressBar(int current, int total)
-    {
-        if (total <= 0) return;
-        const int barWidth = 40;
-        double percent = (double)current / total;
-        int filled = (int)(percent * barWidth);
-
-        // Clamp filled
-        if (filled < 0) filled = 0;
-        if (filled > barWidth) filled = barWidth;
-
-        // If output writer looks like a capture (e.g., tests using StringWriter), write a full line so it can be asserted/read.
-        var outWriter = Console.Out;
-        bool isCapturedWriter = outWriter is StringWriter || outWriter.GetType().Name.Contains("StringWriter", StringComparison.Ordinal);
-        if (isCapturedWriter)
-        {
-            Console.WriteLine($"{percent:P0} ({current}/{total})");
-            return;
-        }
-
-        string bar = new string('=', filled) + new string('-', barWidth - filled);
-        // \r to overwrite line for interactive console rendering
-        Console.Write($"\r[{bar}] {percent:P0} ({current}/{total})");
-    }
-
-    // Synchronous progress reporter to ensure progress updates are emitted inline (useful for tests)
-    private sealed class SyncProgress<T> : IProgress<T>
-    {
-        private readonly Action<T> _handler;
-        public SyncProgress(Action<T> handler) => _handler = handler;
-        public void Report(T value) => _handler?.Invoke(value);
     }
 
     private bool WaitForFile(string fullPath)
