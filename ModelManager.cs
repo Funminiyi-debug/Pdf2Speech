@@ -20,7 +20,8 @@ public class ModelManager(string modelsDir)
         { "ryan-medium", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium" },
         { "ryan-high", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high" },
         { "alan-medium", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium" },
-        { "southern-low", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/en_GB-southern_english_female-low" }
+        { "southern-low", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/en_GB-southern_english_female-low" },
+        { "aru-medium", "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/aru/medium/en_GB-aru-medium"}
     };
 
     public async Task<string?> GetModelPathAsync(string modelName)

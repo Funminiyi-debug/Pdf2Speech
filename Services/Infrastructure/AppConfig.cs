@@ -60,17 +60,27 @@ public class AppConfig : IAppConfig
 
     private static string ResolveProjectRoot(string startDir)
     {
-        // Walk up the directory tree until we find an indicator of the project root.
-        // Indicators: solution or csproj file, or known top-level folders (input, output, models, piper)
+        // Pass 1: Prefer the directory that actually contains the project files (.csproj/.sln)
         var dir = new DirectoryInfo(startDir);
         while (dir != null)
         {
             bool hasCsProj = File.Exists(Path.Combine(dir.FullName, "PdfToSpeechApp.csproj"));
             bool hasSln = File.Exists(Path.Combine(dir.FullName, "PdfToSpeechApp.sln"));
+            if (hasCsProj || hasSln)
+            {
+                return dir.FullName;
+            }
+            dir = dir.Parent;
+        }
+
+        // Pass 2: Fall back to known top-level folders but avoid build output folders (bin/obj)
+        dir = new DirectoryInfo(startDir);
+        while (dir != null)
+        {
             bool hasKnownDirs = Directory.Exists(Path.Combine(dir.FullName, "input"))
                                 && Directory.Exists(Path.Combine(dir.FullName, "models"));
 
-            if (hasCsProj || hasSln || hasKnownDirs)
+            if (hasKnownDirs && !IsInsideBuildDir(dir.FullName))
             {
                 return dir.FullName;
             }
@@ -80,5 +90,13 @@ public class AppConfig : IAppConfig
 
         // Fallback: current working directory
         return Directory.GetCurrentDirectory();
+    }
+
+    private static bool IsInsideBuildDir(string fullPath)
+    {
+        var sep = Path.DirectorySeparatorChar;
+        var path = (fullPath ?? string.Empty).TrimEnd(sep) + sep;
+        return path.Contains($"{sep}bin{sep}", StringComparison.OrdinalIgnoreCase)
+               || path.Contains($"{sep}obj{sep}", StringComparison.OrdinalIgnoreCase);
     }
 }

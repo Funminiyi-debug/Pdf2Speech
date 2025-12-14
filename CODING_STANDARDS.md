@@ -2,3 +2,4 @@
 - Use the most recent syntax of C# e.g. single constructors should be written constructorless
 - always write unit tests for new features
 - Don't use tuple response from methods, instead create a class or record for response types
+- use consistent variable declaration, if it's var let everything be var instead of say string

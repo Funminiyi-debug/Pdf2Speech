@@ -129,15 +129,15 @@ namespace PdfToSpeechApp.IntegrationTests
             // Check if parsing/processing logs are present
             // Note: ExecAsync captures stdout/stderr.
 
-            // Verify file existence
+            // Verify file existence using exit code only (0 when file exists, non-zero otherwise)
             var fileCheck = await _container.ExecAsync(new[]
             {
-                "/bin/sh", "-c", "[ -f /app/out/output/sample.mp3 ] && echo FOUND || echo MARK_NOT_FOUND"
+                "/bin/sh", "-c", "[ -f /app/out/output/sample.mp3 ]"
             });
 
             // Assert
             Assert.Equal(0, execResult.ExitCode);
-            Assert.Contains("FOUND", fileCheck.Stdout);
+            Assert.Equal(0, fileCheck.ExitCode);
         }
     }
 }
