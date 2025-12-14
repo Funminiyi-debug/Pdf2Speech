@@ -11,6 +11,7 @@
 *.sln.iml
 _ReSharper*/
 *.DotSettings.user
+models/
 
 # Visual Studio cache/options
 /.vs/
