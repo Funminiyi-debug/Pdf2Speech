@@ -1,8 +1,8 @@
-using System.Collections.Generic;
+using PdfToSpeechApp.Services.Core;
 
 namespace PdfToSpeechApp.Interfaces;
 
 public interface IPdfParser
 {
-    IEnumerable<string> ExtractText(string filePath);
+    PdfParseResult ExtractText(string filePath);
 }

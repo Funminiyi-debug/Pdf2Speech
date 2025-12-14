@@ -1,0 +1,53 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+
+WORKDIR /src
+
+# Copy project files first for better layer caching
+COPY PdfToSpeechApp.csproj ./
+
+# Restore
+RUN dotnet restore PdfToSpeechApp.csproj
+
+# Copy the remaining source
+COPY Program.cs ./
+COPY Services/ ./Services/
+COPY Interfaces/ ./Interfaces/
+COPY AppEntry.cs ./
+COPY ModelManager.cs ./
+COPY PdfGenerator.cs ./
+COPY input/ ./input/
+COPY models/ ./models/
+COPY piper/ ./piper/
+
+# Publish to a clean output dir (Release)
+RUN dotnet publish PdfToSpeechApp.csproj -c Release -o /app/out
+
+# Final stage (runtime)
+FROM mcr.microsoft.com/dotnet/runtime:9.0
+
+# Install dependencies for Piper (Linux)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    tar \
+    espeak-ng-data \
+    libespeak-ng1 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy published app
+COPY --from=build /app/out/ /app/out/
+
+# Replace any host-specific piper with Linux build and ensure executable
+RUN mkdir -p /app/out/piper && \
+    wget -O /tmp/piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz && \
+    tar -xzf /tmp/piper.tar.gz -C /app/out && \
+    rm /tmp/piper.tar.gz && \
+    chmod +x /app/out/piper/piper
+
+# Ensure standard folders exist
+RUN mkdir -p /app/out/input /app/out/output
+
+# Default entrypoint; test can append args (e.g., --process-file)
+ENTRYPOINT ["dotnet", "/app/out/PdfToSpeechApp.dll"]

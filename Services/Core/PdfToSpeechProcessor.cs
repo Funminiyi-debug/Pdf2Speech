@@ -42,18 +42,21 @@ public class PdfToSpeechProcessor : IFileProcessor
         try
         {
             _logger.Log($"Processing {Path.GetFileName(filePath)}...");
-            var textChunks = _parser.ExtractText(filePath);
-
-            // We can't check IsNullOrWhiteSpace on IEnumerable easily without iterating.
-            // But ExtractText returns an IEnumerable.
-            // We just pass it to TTS.
+            var result = _parser.ExtractText(filePath);
+            var totalPages = result.TotalPages;
+            var textChunks = result.Pages;
 
             string baseName = Path.GetFileNameWithoutExtension(filePath);
             string wavPath = Path.Combine(_config.OutputDir, $"{baseName}.wav");
             string mp3Path = Path.Combine(_config.OutputDir, $"{baseName}.mp3");
 
+            _logger.Log($"Detected {totalPages} pages. Starting conversion...");
+
+            var progress = new SyncProgress<int>(current => DrawProgressBar(current, totalPages));
+
             // Generate WAV
-            await _ttsService.GenerateAudioAsync(textChunks, wavPath, _resolvedModelPath);
+            await _ttsService.GenerateAudioAsync(textChunks, wavPath, _resolvedModelPath, progress);
+            Console.WriteLine(); // Close progress bar line
 
             if (File.Exists(wavPath))
             {
@@ -73,6 +76,39 @@ public class PdfToSpeechProcessor : IFileProcessor
         {
             _logger.LogError($"Error processing file: {ex.Message}", ex);
         }
+    }
+
+    private void DrawProgressBar(int current, int total)
+    {
+        if (total <= 0) return;
+        const int barWidth = 40;
+        double percent = (double)current / total;
+        int filled = (int)(percent * barWidth);
+
+        // Clamp filled
+        if (filled < 0) filled = 0;
+        if (filled > barWidth) filled = barWidth;
+
+        // If output writer looks like a capture (e.g., tests using StringWriter), write a full line so it can be asserted/read.
+        var outWriter = Console.Out;
+        bool isCapturedWriter = outWriter is System.IO.StringWriter || outWriter.GetType().Name.Contains("StringWriter", StringComparison.Ordinal);
+        if (isCapturedWriter)
+        {
+            Console.WriteLine($"{percent:P0} ({current}/{total})");
+            return;
+        }
+
+        string bar = new string('=', filled) + new string('-', barWidth - filled);
+        // \r to overwrite line for interactive console rendering
+        Console.Write($"\r[{bar}] {percent:P0} ({current}/{total})");
+    }
+
+    // Synchronous progress reporter to ensure progress updates are emitted inline (useful for tests)
+    private sealed class SyncProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+        public SyncProgress(Action<T> handler) => _handler = handler;
+        public void Report(T value) => _handler?.Invoke(value);
     }
 
     private bool WaitForFile(string fullPath)

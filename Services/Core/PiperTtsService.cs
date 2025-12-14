@@ -19,7 +19,7 @@ public class PiperTtsService : ITtsService
         _logger = logger;
     }
 
-    public async Task GenerateAudioAsync(IEnumerable<string> textChunks, string outputPath, string modelPath)
+    public async Task GenerateAudioAsync(IEnumerable<string> textChunks, string outputPath, string modelPath, IProgress<int>? progress = null)
     {
         _logger.Log($"Generating audio with Piper at {_piperPath}... Output: {outputPath}");
 
@@ -29,9 +29,12 @@ public class PiperTtsService : ITtsService
             var pipeSource = PipeSource.Create(async (destination, cancellationToken) =>
             {
                 using var writer = new StreamWriter(destination, Encoding.UTF8, leaveOpen: true);
+                int count = 0;
                 foreach (var chunk in textChunks)
                 {
                     await writer.WriteLineAsync(chunk.AsMemory(), cancellationToken);
+                    count++;
+                    progress?.Report(count);
                 }
             });
 
@@ -42,6 +45,7 @@ public class PiperTtsService : ITtsService
                     .Add("--output_file")
                     .Add(outputPath))
                 .WithStandardInputPipe(pipeSource)
+                .WithStandardErrorPipe(PipeTarget.ToDelegate(line => _logger.Log($"[Piper] {line}")))
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync();
 

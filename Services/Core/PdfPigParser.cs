@@ -14,9 +14,9 @@ public class PdfPigParser : IPdfParser
         _logger = logger;
     }
 
-    public IEnumerable<string> ExtractText(string filePath)
+    public PdfParseResult ExtractText(string filePath)
     {
-        PdfDocument? document = null;
+        PdfDocument document;
         try
         {
             document = PdfDocument.Open(filePath);
@@ -27,6 +27,13 @@ public class PdfPigParser : IPdfParser
             throw;
         }
 
+        // We transfer ownership of the document to the iterator
+        int count = document.NumberOfPages;
+        return new PdfParseResult(count, EnumeratePages(document));
+    }
+
+    private IEnumerable<string> EnumeratePages(PdfDocument document)
+    {
         using (document)
         {
             foreach (var page in document.GetPages())

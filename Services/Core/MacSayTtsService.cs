@@ -12,7 +12,7 @@ public class MacSayTtsService(
         ILogger logger
     ) : ITtsService
 {
-    public async Task GenerateAudioAsync(IEnumerable<string> textChunks, string outputPath, string modelPath)
+    public async Task GenerateAudioAsync(IEnumerable<string> textChunks, string outputPath, string modelPath, IProgress<int>? progress = null)
     {
         // modelPath is ignored for 'say'
         logger.Log("Using macOS 'say' command...");
@@ -21,9 +21,12 @@ public class MacSayTtsService(
             var pipeSource = PipeSource.Create(async (destination, cancellationToken) =>
             {
                 using var writer = new StreamWriter(destination, Encoding.UTF8, leaveOpen: true);
+                int count = 0;
                 foreach (var chunk in textChunks)
                 {
                     await writer.WriteLineAsync(chunk.AsMemory(), cancellationToken);
+                    count++;
+                    progress?.Report(count);
                 }
             });
 

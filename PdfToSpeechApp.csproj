@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefaultItemExcludes>$(DefaultItemExcludes);PdfToSpeechApp.Tests/**;PdfToSpeechApp.IntegrationTests/**;PdfToSpeechApp.IntegrationTests.bak/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
