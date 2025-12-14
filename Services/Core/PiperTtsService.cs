@@ -8,51 +8,61 @@ using PdfToSpeechApp.Interfaces;
 
 namespace PdfToSpeechApp.Services.Core;
 
-public class PiperTtsService : ITtsService
+public class PiperTtsService(string piperPath, ILogger logger) : ITtsService
 {
-    private readonly string _piperPath;
-    private readonly ILogger _logger;
+    private const string PiperStdOutPrefix = "[Piper:stdout] ";
+    private const string PiperStdErrPrefix = "[Piper:stderr] ";
+    private const string PiperLogPrefix = "[Piper] ";
+    private const string FfmpegStdOutPrefix = "[FFmpeg:stdout] ";
+    private const string FfmpegStdErrPrefix = "[FFmpeg:stderr] ";
 
-    public PiperTtsService(string piperPath, ILogger logger)
-    {
-        _piperPath = piperPath;
-        _logger = logger;
-    }
+    private readonly string _piperPath = string.IsNullOrWhiteSpace(piperPath)
+        ? throw new ArgumentException("Piper path must be provided", nameof(piperPath))
+        : piperPath;
+
+    private readonly ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+    private sealed record PartsContext(string PartsDir, List<string> PartFiles);
 
     public async Task GenerateAudioAsync(IEnumerable<string> textChunks, string outputPath, string modelPath, IProgress<int>? progress = null)
     {
-        _logger.Log($"Generating audio with Piper at {_piperPath}... Output: {outputPath}");
+        ValidateInputs(textChunks, outputPath, modelPath);
+        _logger.Log($"{PiperLogPrefix}Generating audio per-page... Piper: {_piperPath} Output: {outputPath}");
 
         try
         {
-            // Create a pipe source that streams the chunks
-            var pipeSource = PipeSource.Create(async (destination, cancellationToken) =>
+            var parts = PreparePartsContext(outputPath);
+
+            int pageIndex = 0;
+            int completed = 0;
+
+            foreach (var chunk in textChunks)
             {
-                using var writer = new StreamWriter(destination, Encoding.UTF8, leaveOpen: true);
-                int count = 0;
-                foreach (var chunk in textChunks)
+                pageIndex++;
+                if (ShouldSkipChunk(chunk))
                 {
-                    await writer.WriteLineAsync(chunk.AsMemory(), cancellationToken);
-                    count++;
-                    progress?.Report(count);
+                    _logger.Log($"{PiperLogPrefix}Skipping empty page {pageIndex}");
+                    progress?.Report(++completed);
+                    continue;
                 }
-            });
 
-            var result = await Cli.Wrap(_piperPath)
-                .WithArguments(args => args
-                    .Add("--model")
-                    .Add(modelPath)
-                    .Add("--output_file")
-                    .Add(outputPath))
-                .WithStandardInputPipe(pipeSource)
-                .WithStandardErrorPipe(PipeTarget.ToDelegate(line => _logger.Log($"[Piper] {line}")))
-                .WithValidation(CommandResultValidation.None)
-                .ExecuteAsync();
+                var partPath = BuildPartPath(parts.PartsDir, pageIndex);
+                await SynthesizePageAsync(chunk!, partPath, modelPath, pageIndex);
 
-            if (result.ExitCode != 0)
-            {
-                throw new Exception($"Piper exited with code {result.ExitCode}");
+                EnsureFileExists(partPath, $"Piper failed to produce output for page {pageIndex}");
+                parts.PartFiles.Add(partPath);
+
+                progress?.Report(++completed);
             }
+
+            if (parts.PartFiles.Count == 0)
+            {
+                _logger.Log($"{PiperLogPrefix}No audio parts produced (all pages empty?). Skipping concat.");
+                return;
+            }
+
+            await ConcatenatePartsAsync(parts.PartFiles, outputPath, parts.PartsDir);
+            CleanupPartsSafe(parts.PartFiles, parts.PartsDir);
         }
         catch (Exception ex)
         {
@@ -60,4 +70,124 @@ public class PiperTtsService : ITtsService
             throw;
         }
     }
+
+    private void ValidateInputs(IEnumerable<string> textChunks, string outputPath, string modelPath)
+    {
+        ArgumentNullException.ThrowIfNull(textChunks);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
+    }
+
+    private static PartsContext PreparePartsContext(string outputPath)
+    {
+        var outDir = Path.GetDirectoryName(outputPath) ?? Directory.GetCurrentDirectory();
+        var baseName = Path.GetFileNameWithoutExtension(outputPath);
+        var partsDir = Path.Combine(outDir, $"{baseName}_parts");
+        Directory.CreateDirectory(partsDir);
+        return new PartsContext(partsDir, new List<string>());
+    }
+
+    private static bool ShouldSkipChunk(string? chunk) => string.IsNullOrWhiteSpace(chunk?.Trim());
+
+    private static string BuildPartPath(string partsDir, int pageIndex) => Path.Combine(partsDir, $"part_{pageIndex:D4}.wav");
+
+    private async Task SynthesizePageAsync(string chunk, string partPath, string modelPath, int pageIndex)
+    {
+        var trimmed = chunk.Trim();
+        _logger.Log($"{PiperLogPrefix}Synthesizing page {pageIndex} -> {partPath}");
+
+        var argsPreview = $"--model \"{modelPath}\" --output_file \"{partPath}\"";
+        _logger.Log($"{PiperLogPrefix}Command: {_piperPath} {argsPreview}");
+
+        var result = await Cli.Wrap(_piperPath)
+            .WithArguments(args => args
+                .Add("--model").Add(modelPath)
+                .Add("--output_file").Add(partPath))
+            .WithStandardInputPipe(PipeSource.FromString(trimmed + "\n"))
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(PiperStdOutPrefix, line))))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(PiperStdErrPrefix, line))))
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync();
+
+        _logger.Log($"{PiperLogPrefix}Page {pageIndex} exited with code {result.ExitCode}");
+        if (result.ExitCode != 0)
+        {
+            throw new Exception($"Piper failed on page {pageIndex} with exit code {result.ExitCode}");
+        }
+    }
+
+    private async Task ConcatenatePartsAsync(List<string> partFiles, string outputPath, string partsDir)
+    {
+        var listFile = Path.Combine(partsDir, "list.txt");
+        await WriteConcatListAsync(partFiles, listFile);
+
+        _logger.Log($"[FFmpeg] Concatenating {partFiles.Count} parts into {outputPath}");
+        var ffArgsPreview = $"-f concat -safe 0 -i \"{listFile}\" -y -c copy \"{outputPath}\"";
+        _logger.Log($"[FFmpeg] Command: ffmpeg {ffArgsPreview}");
+
+        var concatResult = await Cli.Wrap("ffmpeg")
+            .WithArguments(args => args
+                .Add("-f").Add("concat")
+                .Add("-safe").Add("0")
+                .Add("-i").Add(listFile)
+                .Add("-y")
+                .Add("-c").Add("copy")
+                .Add(outputPath))
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(FfmpegStdOutPrefix, line))))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(FfmpegStdErrPrefix, line))))
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync();
+
+        _logger.Log($"[FFmpeg] Concat exited with code {concatResult.ExitCode}");
+        if (concatResult.ExitCode != 0 || !File.Exists(outputPath))
+        {
+            throw new Exception($"FFmpeg concat failed with exit code {concatResult.ExitCode}");
+        }
+
+        // Remove list file after successful concat
+        TryDeleteFile(listFile);
+    }
+
+    private static async Task WriteConcatListAsync(IEnumerable<string> files, string listFile)
+    {
+        await using var writer = new StreamWriter(listFile, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        foreach (var file in files)
+        {
+            var quoted = file.Replace("'", "'\\''");
+            await writer.WriteLineAsync($"file '{quoted}'");
+        }
+    }
+
+    private void CleanupPartsSafe(IEnumerable<string> partFiles, string partsDir)
+    {
+        try
+        {
+            foreach (var f in partFiles)
+            {
+                TryDeleteFile(f);
+            }
+            TryDeleteDirectory(partsDir);
+        }
+        catch (Exception cleanupEx)
+        {
+            _logger.Log($"Cleanup warning: {cleanupEx.Message}");
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* ignore */ }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); } catch { /* ignore */ }
+    }
+
+    private static void EnsureFileExists(string filePath, string message)
+    {
+        if (!File.Exists(filePath)) throw new FileNotFoundException(message, filePath);
+    }
+
+    private static string Concat(string prefix, string? line) => prefix + (line ?? string.Empty);
 }
