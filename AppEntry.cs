@@ -5,47 +5,33 @@ using PdfToSpeechApp.Interfaces;
 
 namespace PdfToSpeechApp;
 
-public class AppEntry
+public class AppEntry(
+    ILogger logger,
+    IAppConfig config,
+    ModelManager modelManager,
+    IFileMonitor fileMonitor,
+    IFileProcessor fileProcessor)
 {
-    private readonly ILogger _logger;
-    private readonly IAppConfig _config;
-    private readonly ModelManager _modelManager;
-    private readonly IFileMonitor _fileMonitor;
-    private readonly IFileProcessor _fileProcessor;
-
-    public AppEntry(
-        ILogger logger,
-        IAppConfig config,
-        ModelManager modelManager,
-        IFileMonitor fileMonitor,
-        IFileProcessor fileProcessor)
-    {
-        _logger = logger;
-        _config = config;
-        _modelManager = modelManager;
-        _fileMonitor = fileMonitor;
-        _fileProcessor = fileProcessor;
-    }
 
     public async Task RunAsync(string[] args)
     {
-        _logger.Log("Starting PDF to Speech App (DI Refactored)...");
+        logger.Log("Starting PDF to Speech App (DI Refactored)...");
 
         if (HasArgument(args, "--generate-sample"))
         {
-            GenerateSample(_config.InputDir);
+            GenerateSample(config.InputDir);
             return;
         }
 
         string? specificFile = GetArgumentValue(args, "--process-file");
 
         // 2. Resolve Model (Ensure it exists)
-        _logger.Log($"Checking model: {_config.ModelName}...");
-        string? resolvedModelPath = await _modelManager.GetModelPathAsync(_config.ModelName);
+        logger.Log($"Checking model: {config.ModelName}...");
+        string? resolvedModelPath = await modelManager.GetModelPathAsync(config.ModelName);
 
         if (resolvedModelPath == null)
         {
-            _logger.LogError("Could not resolve model path. Exiting.");
+            logger.LogError("Could not resolve model path. Exiting.");
             return;
         }
 
@@ -71,14 +57,14 @@ public class AppEntry
 
         if (!string.IsNullOrEmpty(specificFile))
         {
-            _logger.Log($"Processing single file: {specificFile}");
-            await _fileProcessor.ProcessFileAsync(specificFile);
+            logger.Log($"Processing single file: {specificFile}");
+            await fileProcessor.ProcessFileAsync(specificFile);
             return;
         }
 
         // 3. Run Monitor
-        _fileMonitor.StartMonitoring();
-        _logger.Log("Press 'q' to quit.");
+        fileMonitor.StartMonitoring();
+        logger.Log("Press 'q' to quit.");
         while (Console.Read() != 'q') ;
     }
 
@@ -106,11 +92,11 @@ public class AppEntry
             Directory.CreateDirectory(inputDir);
             string samplePath = Path.Combine(inputDir, "sample.pdf");
             PdfGenerator.CreateSamplePdf(samplePath);
-            _logger.Log($"Sample PDF generated at {samplePath}");
+            logger.Log($"Sample PDF generated at {samplePath}");
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error generating sample: {ex.Message}", ex);
+            logger.LogError($"Error generating sample: {ex.Message}", ex);
         }
     }
 }

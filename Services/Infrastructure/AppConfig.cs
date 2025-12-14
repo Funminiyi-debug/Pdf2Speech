@@ -20,10 +20,17 @@ public class AppConfig : IAppConfig
 
     public AppConfig(string[] args)
     {
-        // Default paths
-        InputDir = Path.GetFullPath("input");
-        OutputDir = Path.GetFullPath("output");
-        ModelsDir = Path.GetFullPath("models");
+        // Resolve project root regardless of current working directory (e.g., bin/Debug/net9.0)
+        var projectRoot = ResolveProjectRoot(AppContext.BaseDirectory);
+
+        // Default paths relative to project root
+        InputDir = Path.Combine(projectRoot, "input");
+        OutputDir = Path.Combine(projectRoot, "output");
+        ModelsDir = Path.Combine(projectRoot, "models");
+
+        // Ensure output directory exists to avoid runtime errors when writing files
+        Directory.CreateDirectory(OutputDir);
+
         PiperPath = "piper"; // Default fallback
         ModelName = "lessac-medium"; // Default
 
@@ -49,5 +56,29 @@ public class AppConfig : IAppConfig
                 // Extend here for input/output dir args if needed
             }
         }
+    }
+
+    private static string ResolveProjectRoot(string startDir)
+    {
+        // Walk up the directory tree until we find an indicator of the project root.
+        // Indicators: solution or csproj file, or known top-level folders (input, output, models, piper)
+        var dir = new DirectoryInfo(startDir);
+        while (dir != null)
+        {
+            bool hasCsProj = File.Exists(Path.Combine(dir.FullName, "PdfToSpeechApp.csproj"));
+            bool hasSln = File.Exists(Path.Combine(dir.FullName, "PdfToSpeechApp.sln"));
+            bool hasKnownDirs = Directory.Exists(Path.Combine(dir.FullName, "input"))
+                                && Directory.Exists(Path.Combine(dir.FullName, "models"));
+
+            if (hasCsProj || hasSln || hasKnownDirs)
+            {
+                return dir.FullName;
+            }
+
+            dir = dir.Parent;
+        }
+
+        // Fallback: current working directory
+        return Directory.GetCurrentDirectory();
     }
 }

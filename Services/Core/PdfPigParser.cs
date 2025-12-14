@@ -5,14 +5,8 @@ using PdfToSpeechApp.Interfaces;
 
 namespace PdfToSpeechApp.Services.Core;
 
-public class PdfPigParser : IPdfParser
+public class PdfPigParser(ILogger logger) : IPdfParser
 {
-    private readonly ILogger _logger;
-
-    public PdfPigParser(ILogger logger)
-    {
-        _logger = logger;
-    }
 
     public PdfParseResult ExtractText(string filePath)
     {
@@ -23,7 +17,7 @@ public class PdfPigParser : IPdfParser
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error opening PDF: {ex.Message}", ex);
+            logger.LogError($"Error opening PDF: {ex.Message}", ex);
             throw;
         }
 

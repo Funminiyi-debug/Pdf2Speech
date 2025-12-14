@@ -6,10 +6,10 @@ using System.Threading.Tasks;
 
 namespace PdfToSpeechApp;
 
-public class ModelManager
+public class ModelManager(string modelsDir)
 {
-    private readonly string _modelsDir;
-    private readonly HttpClient _httpClient;
+    private readonly string _modelsDir = modelsDir;
+    private readonly HttpClient _httpClient = new HttpClient();
 
     // Mapping of short names to base URLs (without extension)
     // We assume .onnx and .onnx.json exist at these URLs.
@@ -22,12 +22,6 @@ public class ModelManager
         { "alan-medium", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium" },
         { "southern-low", "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/en_GB-southern_english_female-low" }
     };
-
-    public ModelManager(string modelsDir)
-    {
-        _modelsDir = modelsDir;
-        _httpClient = new HttpClient();
-    }
 
     public async Task<string?> GetModelPathAsync(string modelName)
     {
