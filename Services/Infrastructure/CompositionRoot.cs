@@ -19,7 +19,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PiperTtsService>(sp =>
             new PiperTtsService(
                 sp.GetRequiredService<IAppConfig>().PiperPath,
-                sp.GetRequiredService<ILogger>()));
+                sp.GetRequiredService<ILogger>(),
+                sp.GetRequiredService<IAppConfig>().SpeakerId));
 
         services.AddSingleton<MacSayTtsService>();
 

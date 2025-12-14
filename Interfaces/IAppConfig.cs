@@ -8,4 +8,5 @@ public interface IAppConfig
     string PiperPath { get; }
     string ModelName { get; }
     string? ResolvedModelPath { get; }
+    int? SpeakerId { get; }
 }

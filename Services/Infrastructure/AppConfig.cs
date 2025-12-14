@@ -12,6 +12,7 @@ public class AppConfig : IAppConfig
     public string PiperPath { get; private set; }
     public string ModelName { get; private set; }
     public string? ResolvedModelPath { get; private set; }
+    public int? SpeakerId { get; private set; }
 
     public void SetResolvedModelPath(string path)
     {
@@ -53,7 +54,14 @@ public class AppConfig : IAppConfig
                     ModelName = args[i + 1];
                     i++;
                 }
-                // Extend here for input/output dir args if needed
+                else if (args[i] == "--speaker" && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[i + 1], out int speakerId))
+                    {
+                        SpeakerId = speakerId;
+                    }
+                    i++;
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ using PdfToSpeechApp.Interfaces;
 
 namespace PdfToSpeechApp.Services.Core;
 
-public class PiperTtsService(string piperPath, ILogger logger) : ITtsService
+public class PiperTtsService(string piperPath, ILogger logger, int? speakerId = null) : ITtsService
 {
     private const string PiperStdOutPrefix = "[Piper:stdout] ";
     private const string PiperStdErrPrefix = "[Piper:stderr] ";
@@ -21,6 +21,7 @@ public class PiperTtsService(string piperPath, ILogger logger) : ITtsService
         : piperPath;
 
     private readonly ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly int? _speakerId = speakerId;
 
     private sealed record PartsContext(string PartsDir, List<string> PartFiles);
 
@@ -96,13 +97,20 @@ public class PiperTtsService(string piperPath, ILogger logger) : ITtsService
         var trimmed = chunk.Trim();
         _logger.Log($"{PiperLogPrefix}Synthesizing page {pageIndex} -> {partPath}");
 
-        var argsPreview = $"--model \"{modelPath}\" --output_file \"{partPath}\"";
+        var speakerArg = _speakerId.HasValue ? $" --speaker {_speakerId.Value}" : "";
+        var argsPreview = $"--model \"{modelPath}\"{speakerArg} --output_file \"{partPath}\"";
         _logger.Log($"{PiperLogPrefix}Command: {_piperPath} {argsPreview}");
 
         var result = await Cli.Wrap(_piperPath)
-            .WithArguments(args => args
-                .Add("--model").Add(modelPath)
-                .Add("--output_file").Add(partPath))
+            .WithArguments(args =>
+            {
+                args.Add("--model").Add(modelPath);
+                if (_speakerId.HasValue)
+                {
+                    args.Add("--speaker").Add(_speakerId.Value.ToString());
+                }
+                args.Add("--output_file").Add(partPath);
+            })
             .WithStandardInputPipe(PipeSource.FromString(trimmed + "\n"))
             .WithStandardOutputPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(PiperStdOutPrefix, line))))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line => _logger.Log(Concat(PiperStdErrPrefix, line))))
